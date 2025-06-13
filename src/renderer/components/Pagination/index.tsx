@@ -1,20 +1,44 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import * as styles from "./Pagination.module.scss";
 
 interface PaginationProps {
-  currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
   className?: string;
 }
 
 const Pagination: React.FC<PaginationProps> = ({
-  currentPage,
   totalPages,
   onPageChange,
   className = "",
 }) => {
   if (totalPages <= 1) return null;
+
+  const [currentPage, setCurrentPage] = useState(() => {
+    const params = new URLSearchParams(window.location.href.split("?")[1]);
+    return parseInt(params.get("page") || "1", 10);
+  });
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const params = new URLSearchParams(window.location.href.split("?")[1]);
+      const page = parseInt(params.get("page") || "1", 10);
+      if (page !== currentPage && page >= 1 && page <= totalPages) {
+        setCurrentPage(page);
+      }
+    };
+
+    window.addEventListener("popstate", handleUrlChange);
+    window.addEventListener("hashchange", handleUrlChange);
+
+    // Initial check
+    handleUrlChange();
+
+    return () => {
+      window.removeEventListener("popstate", handleUrlChange);
+      window.removeEventListener("hashchange", handleUrlChange);
+    };
+  }, [totalPages, currentPage]);
 
   const getPageNumbers = () => {
     const pages = [];
@@ -47,16 +71,15 @@ const Pagination: React.FC<PaginationProps> = ({
     return pages;
   };
 
+  const handlePageChangeInternal = (page: number) => {
+    if (page >= 1 && page <= totalPages && page !== currentPage) {
+      setCurrentPage(page);
+      onPageChange(page);
+    }
+  };
+
   return (
     <div className={`${styles.pagination} ${className}`}>
-      <button
-        onClick={() => onPageChange(currentPage - 1)}
-        disabled={currentPage === 1}
-        className={styles.arrow}
-      >
-        &lt;
-      </button>
-
       {getPageNumbers().map((page, index) =>
         page === "..." ? (
           <span key={`ellipsis-${index}`} className={styles.ellipsis}>
@@ -65,7 +88,7 @@ const Pagination: React.FC<PaginationProps> = ({
         ) : (
           <button
             key={page}
-            onClick={() => onPageChange(page as number)}
+            onClick={() => handlePageChangeInternal(page as number)}
             className={`${styles.page} ${
               currentPage === page ? styles.active : ""
             }`}
@@ -74,14 +97,6 @@ const Pagination: React.FC<PaginationProps> = ({
           </button>
         )
       )}
-
-      <button
-        onClick={() => onPageChange(currentPage + 1)}
-        disabled={currentPage === totalPages}
-        className={styles.arrow}
-      >
-        &gt;
-      </button>
     </div>
   );
 };

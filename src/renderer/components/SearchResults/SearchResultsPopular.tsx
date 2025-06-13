@@ -7,6 +7,8 @@ import { FaRedo } from "react-icons/fa";
 import * as styles from "./SearchResults.module.scss";
 import { wsClient } from "../../../wsClient";
 import { useTagFilter } from "../../../context/TagFilterContext";
+import MinimalHeader from "./MinimalHeader";
+import { Loading, StateBlock } from "./SearchResultStates";
 
 const PER_PAGE = 25;
 const POPULAR_SORT_STORAGE_KEY = "popularBooksSortType";
@@ -25,47 +27,30 @@ const SearchResultsPopular: React.FC = () => {
   const { search } = useLocation();
   const navigate = useNavigate();
   const qp = new URLSearchParams(search);
-  const sortURL = qp.get("sort") as SortType | null;
+  const sortFromURL = qp.get("sort") as SortType | null;
+  const pageFromURL = parseInt(qp.get("page") || "1", 10);
+  const yearFromURL = qp.get("year") ? parseInt(qp.get("year"), 10) : null;
 
   const { selectedTags } = useTagFilter();
 
   const [favIds, setFavIds] = useState<number[]>(() =>
     JSON.parse(localStorage.getItem(LS_FAVORITES_KEY) ?? "[]")
   );
-
-  useEffect(() => {
-    const h = (e: StorageEvent) => {
-      if (e.key === LS_FAVORITES_KEY) setFavIds(JSON.parse(e.newValue ?? "[]"));
-    };
-    window.addEventListener("storage", h);
-    return () => window.removeEventListener("storage", h);
-  }, []);
-
-  const toggleFavorite = (id: number, add: boolean) => {
-    setFavIds((prev) => {
-      const next = add ? [...prev, id] : prev.filter((i) => i !== id);
-      localStorage.setItem(LS_FAVORITES_KEY, JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const initialSort: SortType =
-    sortURL && SORT_OPTS.some((o) => o.value === sortURL)
-      ? sortURL
-      : (localStorage.getItem(POPULAR_SORT_STORAGE_KEY) as SortType) ||
-        "popular";
-
-  const [sortState, setSort] = useState<SortType>(initialSort);
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoad] = useState(false);
   const [error, setErr] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotal] = useState(1);
+  const [currentPage, setCurrentPage] = useState(pageFromURL);
+  const [totalPages, setTotalPages] = useState(1);
 
   const fetchData = useCallback(
-    (p = 1, s: SortType = sortState) => {
+    (
+      page = 1,
+      sort: SortType = (sortFromURL as SortType) || "popular",
+      year: number | null = yearFromURL
+    ) => {
       setLoad(true);
       setErr(null);
+      setCurrentPage(page);
 
       const unsub = wsClient.subscribe((res) => {
         if (res.type === "error") {
@@ -75,8 +60,8 @@ const SearchResultsPopular: React.FC = () => {
         }
         if (res.type === "popular-books-reply") {
           setBooks(res.books || []);
-          setTotal(res.totalPages ?? 1);
-          setPage(res.currentPage ?? 1);
+          setTotalPages(res.totalPages ?? 1);
+          setCurrentPage(res.currentPage ?? page);
           setLoad(false);
           unsub();
         }
@@ -85,66 +70,84 @@ const SearchResultsPopular: React.FC = () => {
       wsClient.send({
         type: "search-books",
         query: "",
-        sort: s,
-        page: p,
+        sort: sort,
+        page,
         perPage: PER_PAGE,
         filterTags: selectedTags,
         contentType: "popular",
+        year: year,
       });
     },
-    [selectedTags, sortState]
+    [selectedTags, sortFromURL, yearFromURL]
   );
 
   useEffect(() => {
-    fetchData(1, initialSort);
-  }, []);
-  useEffect(() => {
-    fetchData(1, sortState);
-  }, [selectedTags]);
+    fetchData(pageFromURL, (sortFromURL as SortType) || "popular", yearFromURL);
+  }, [pageFromURL, sortFromURL, yearFromURL, fetchData]);
 
-  const onSort = (s: SortType) => {
-    if (s === sortState) return;
-    localStorage.setItem(POPULAR_SORT_STORAGE_KEY, s);
-    navigate(`/search?type=popular&sort=${s}`);
-    setSort(s);
-    fetchData(1, s);
+  useEffect(() => {
+    const newPage = parseInt(qp.get("page") || "1", 10);
+    const newSort = qp.get("sort") as SortType | null;
+    const newYear = qp.get("year") ? parseInt(qp.get("year"), 10) : null;
+    if (
+      newPage !== currentPage ||
+      (newSort && newSort !== sortFromURL) ||
+      newYear !== yearFromURL
+    ) {
+      const effectiveSort = newSort || (sortFromURL as SortType) || "popular";
+      setCurrentPage(newPage);
+      if (newSort && newSort !== sortFromURL) {
+        localStorage.setItem(POPULAR_SORT_STORAGE_KEY, newSort);
+      }
+      fetchData(newPage, effectiveSort, newYear);
+    }
+  }, [qp]);
+
+  const onSortChange = (sort: string) => {
+    localStorage.setItem(POPULAR_SORT_STORAGE_KEY, sort);
+    navigate(`/search?type=popular&sort=${sort}&page=1`);
+    fetchData(1, sort as SortType, yearFromURL);
+  };
+
+  const onPageChange = (p: number) => {
+    if (p < 1 || p > totalPages) return;
+    navigate(
+      `/search?type=popular&sort=${sortFromURL || "popular"}${
+        yearFromURL ? `&year=${yearFromURL}` : ""
+      }&page=${p}`
+    );
+    fetchData(p, (sortFromURL as SortType) || "popular", yearFromURL);
+  };
+
+  const toggleFavorite = (id: number, add: boolean) => {
+    setFavIds((prev) => {
+      const next = add ? [...prev, id] : prev.filter((i) => i !== id);
+      localStorage.setItem(LS_FAVORITES_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   return (
     <div className={styles.container}>
-      <div className={styles.minimalHeader}>
-        <div className={styles.sortControls}>
-          {SORT_OPTS.map((o) => (
-            <button
-              key={o.value}
-              className={`${styles.sortButton} ${
-                sortState === o.value ? styles.active : ""
-              }`}
-              onClick={() => onSort(o.value)}
-            >
-              {o.icon}
-              <span>{o.label}</span>
-            </button>
-          ))}
-          <button
-            className={styles.refreshButton}
-            disabled={loading}
-            onClick={() => fetchData(page, sortState)}
-          >
-            <FaRedo
-              className={`${styles.refreshIcon} ${loading ? styles.spin : ""}`}
-            />
-          </button>
-        </div>
-      </div>
-
       <div className={styles.mainContent}>
-        {error && (
-          <ErrorBlock msg={error} retry={() => fetchData(page, sortState)} />
+        {(error || (!loading && books.length === 0)) && (
+          <StateBlock
+            icon={error ? "⚠️" : "📈"}
+            title={error ? "Error" : "Empty for now"}
+            description={error || "No popular works found — try again later"}
+            retry={
+              error
+                ? () =>
+                    fetchData(
+                      currentPage,
+                      (sortFromURL as SortType) || "popular",
+                      yearFromURL
+                    )
+                : undefined
+            }
+          />
         )}
-        {loading && <LoadingBlock />}
-        {!loading && books.length === 0 && <EmptyBlock />}
-
+        {loading && <Loading />}
         {!loading && books.length > 0 && (
           <>
             <div className={styles.booksGrid}>
@@ -160,46 +163,29 @@ const SearchResultsPopular: React.FC = () => {
             {totalPages > 1 && (
               <div className={styles.paginationContainer}>
                 <Pagination
-                  currentPage={page}
                   totalPages={totalPages}
-                  onPageChange={(p) => fetchData(p, sortState)}
+                  onPageChange={onPageChange}
                 />
               </div>
             )}
           </>
         )}
       </div>
+      <MinimalHeader
+        sortOptions={SORT_OPTS}
+        defaultSort="popular"
+        onSortChange={onSortChange}
+        onRefresh={() =>
+          fetchData(
+            currentPage,
+            (sortFromURL as SortType) || "popular",
+            yearFromURL
+          )
+        }
+        loading={loading}
+      />
     </div>
   );
 };
-
-const LoadingBlock = () => (
-  <div className={styles.loadingState}>
-    <div className={styles.loadingSpinner} />
-  </div>
-);
-
-const ErrorBlock: React.FC<{ msg: string; retry: () => void }> = ({
-  msg,
-  retry,
-}) => (
-  <div className={styles.errorState}>
-    <div className={styles.errorContent}>
-      <div className={styles.errorIcon}>⚠️</div>
-      <div className={styles.errorText}>{msg}</div>
-      <button className={styles.retryButton} onClick={retry}>
-        Retry
-      </button>
-    </div>
-  </div>
-);
-
-const EmptyBlock = () => (
-  <div className={styles.emptyState}>
-    <div className={styles.emptyIllustration}>📈</div>
-    <h3>Empty for now</h3>
-    <p>No popular works found — try again later</p>
-  </div>
-);
 
 export default SearchResultsPopular;
