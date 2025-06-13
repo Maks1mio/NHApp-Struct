@@ -1,0 +1,255 @@
+.container {
+  display: flex;
+  flex-direction: column;
+}
+
+.minimalHeader {
+  padding: 0.5rem 2rem;
+  background: rgb(53 53 71 / 98%);
+  backdrop-filter: blur(45px);
+  z-index: 11;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.1);
+}
+
+.sortControls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.sortButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 2rem;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+
+  &:hover {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+  }
+
+  &.active {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+  }
+}
+
+.refreshButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+
+  &:hover {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.refreshIcon {
+  font-size: 1rem;
+
+  &.spin {
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mainContent {
+  flex: 1;
+  padding: 2rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.errorState {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 50vh;
+}
+
+.errorContent {
+  text-align: center;
+  max-width: 400px;
+  padding: 2rem;
+}
+
+.errorIcon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.errorText {
+  color: #ef4444;
+  margin-bottom: 1.5rem;
+  font-size: 1.1rem;
+}
+
+.retryButton {
+  padding: 0.75rem 1.5rem;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: #4f46e5;
+  }
+}
+
+.loadingState {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 50vh;
+}
+
+.loadingSpinner {
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid rgba(99, 102, 241, 0.2);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 50vh;
+  padding: 2rem;
+
+  h3 {
+    font-size: 1.5rem;
+    margin: 1rem 0 0.5rem;
+    color: #1e293b;
+  }
+
+  p {
+    color: #64748b;
+    margin-bottom: 1.5rem;
+    max-width: 400px;
+  }
+}
+
+.emptyIllustration {
+  font-size: 4rem;
+  opacity: 0.7;
+  margin-bottom: 1rem;
+}
+
+.primaryButton {
+  padding: 0.75rem 1.5rem;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: #4f46e5;
+  }
+}
+
+.booksGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+}
+
+.paginationContainer {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.infoWrapper {
+  position: relative;
+  display: inline-flex;
+  margin-left: 6px;
+  cursor: pointer;
+}
+
+.infoIcon {
+  font-size: 17px;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+  &:hover {
+    opacity: 1;
+  }
+}
+
+.nh-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.tooltipInner section {
+  margin-bottom: 8px;
+}
+.tooltipInner ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
