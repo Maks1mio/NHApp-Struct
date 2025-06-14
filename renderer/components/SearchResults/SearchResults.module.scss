@@ -137,6 +137,13 @@
   }
 }
 
+.loadingMore {
+  text-align: center;
+  padding: 4rem;
+  color: var(--colour-l2);
+  font-size: 0.95rem;
+}
+
 .loadingState {
   display: flex;
   flex-direction: column;
@@ -390,6 +397,7 @@
 }
 
 .selectedContentType {
+  user-select: none;
   display: flex;
   gap: 8px;
   padding: 10px 14px;
@@ -460,5 +468,120 @@
   .contentTypeDropdown {
     min-width: fit-content;
     left: auto;
+  }
+}
+
+/* ============ Debug box ============ */
+.debugBox {
+  border: 1px solid var(--colour-d3);
+  border-radius: 1rem;
+  background: hsla(var(--base-hue), 25%, 12%, 0.9);
+  padding: 1rem 1.25rem;
+  margin-bottom: 2rem;
+  color: var(--colour-l1);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+  width: -webkit-fill-available;
+
+  .debugToggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: none;
+    color: hsla(var(--base-hue), 95%, 80%, 1);
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.2rem 0;
+    svg {
+      transition: transform 0.2s;
+    }
+  }
+
+  .briefRow {
+    margin-top: 0.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .pill {
+    background: hsla(var(--base-hue), 50%, 60%, 0.15);
+    color: var(--colour-c1);
+    padding: 0.15rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+
+  .details {
+    margin-top: 1rem;
+    border-top: 1px hsla(var(--base-hue), 95%, 80%, 0.2) solid;
+    padding-top: 1rem;
+
+    h4 {
+      margin-bottom: 0.6rem;
+      color: hsla(var(--base-hue), 95%, 80%, 1);
+    }
+
+    section {
+      margin-bottom: 0.4rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    details {
+      margin-top: 0.2rem;
+      summary {
+        cursor: pointer;
+        color: hsla(var(--base-hue), 95%, 80%, 1);
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+      }
+      pre {
+        background: var(--colour-d4);
+        padding: 0.6rem 0.9rem;
+        border-radius: 0.6rem;
+        max-height: 280px;
+        overflow: auto;
+        font-size: 0.8rem;
+        color: var(--colour-l2);
+      }
+    }
+
+    .qList {
+      margin: 0.4rem 0;
+      padding-left: 1.2rem;
+      li {
+        margin-bottom: 0.25rem;
+        font-size: 0.85rem;
+      }
+    }
+
+    .filterLine {
+      display: block;
+      margin-top: 0.3rem;
+      background: var(--colour-d4);
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--colour-l3);
+    }
+
+    .bookExplain {
+      margin: 0.5rem 0 0;
+      padding-left: 1.1rem;
+      li {
+        margin-bottom: 0.35rem;
+        span {
+          display: block;
+          font-size: 0.8rem;
+          opacity: 0.85;
+        }
+      }
+    }
   }
 }

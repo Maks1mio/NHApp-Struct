@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import BookCard, { Book } from "../BookCard";
-import Pagination from "../Pagination";
 import { FiStar, FiTrendingUp } from "react-icons/fi";
 import { FaRedo } from "react-icons/fa";
 import * as styles from "./SearchResults.module.scss";
@@ -20,85 +19,119 @@ const SORT_OPTS: { value: SortType; label: string; icon: React.ReactNode }[] = [
 ];
 
 const SearchResultsFavorites: React.FC = () => {
+  /* ─── локальные избранные ─── */
   const [favIds, setFavIds] = useState<number[]>(() =>
     JSON.parse(localStorage.getItem(LS_FAVORITES_KEY) ?? "[]")
   );
+  const favIdsRef = useRef(favIds);
+  useEffect(() => {
+    favIdsRef.current = favIds;
+  }, [favIds]);
+
+  /* ─── данные / состояние ─── */
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setPage] = useState(1);
+  const [totalPages, setTotal] = useState(1);
+
   const initialSort =
     (localStorage.getItem(FAVORITES_SORT_KEY) as SortType) || "relevance";
-  const [sortState, setSortState] = useState<SortType>(initialSort);
+  const [sortState, setSort] = useState<SortType>(initialSort);
 
-  const fetchData = useCallback(
+  /* ─── fetch ─── */
+  const fetchPage = useCallback(
     (p = 1, s: SortType = sortState) => {
-      if (favIds.length === 0) {
+      const ids = favIdsRef.current;
+      if (ids.length === 0) {
         setBooks([]);
-        setTotalPages(1);
-        setCurrentPage(1);
+        setPage(1);
+        setTotal(1);
         return;
       }
-      setLoading(true);
+
+      p === 1 ? setLoading(true) : setMore(true);
       setError(null);
-      setCurrentPage(p);
 
       const unsub = wsClient.subscribe((res) => {
         if (res.type === "error") {
           setError(res.message || "Unknown error");
           setLoading(false);
+          setMore(false);
           return unsub();
         }
         if (res.type === "favorites-reply") {
-          setBooks(res.books || []);
-          setTotalPages(res.totalPages ?? 1);
-          setCurrentPage(res.currentPage ?? p);
+          setBooks((prev) =>
+            p === 1 ? res.books || [] : [...prev, ...(res.books || [])]
+          );
+          setTotal(res.totalPages ?? 1);
+          setPage(res.currentPage ?? p);
           setLoading(false);
+          setMore(false);
           unsub();
         }
       });
 
       wsClient.send({
         type: "get-favorites",
-        ids: favIds,
+        ids,
         page: p,
         perPage: PER_PAGE,
         sort: s === "popular" ? "popular" : "relevance",
       });
     },
-    [favIds, sortState]
+    [sortState]
   );
 
+  /* ─── init ─── */
   useEffect(() => {
-    fetchData(1, initialSort);
-  }, [initialSort, fetchData]);
+    fetchPage(1, initialSort);
+  }, [initialSort, fetchPage]);
 
-  useEffect(() => {
-    fetchData(currentPage, sortState);
-  }, [sortState]);
-
-  const onSortChange = (sort: string) => {
-    localStorage.setItem(FAVORITES_SORT_KEY, sort);
-    setSortState(sort as SortType);
-    fetchData(currentPage, sort as SortType);
+  /* ─── sort change ─── */
+  const onSortChange = (v: string) => {
+    localStorage.setItem(FAVORITES_SORT_KEY, v);
+    setSort(v as SortType);
+    setBooks([]);
+    setPage(1);
+    fetchPage(1, v as SortType);
   };
 
-  const onPageChange = (p: number) => {
-    if (p < 1 || p > totalPages) return;
-    setCurrentPage(p);
-    fetchData(p, sortState);
-  };
-
+  /* ─── toggle ★ ─── */
   const toggleFavorite = (id: number, add: boolean) => {
     setFavIds((prev) => {
       const next = add ? [...prev, id] : prev.filter((i) => i !== id);
       localStorage.setItem(LS_FAVORITES_KEY, JSON.stringify(next));
-      if (!add) setBooks((b) => b.filter((book) => book.id !== id));
+      if (!add) setBooks((b) => b.filter((bk) => bk.id !== id));
       return next;
     });
   };
 
+  /* ─── infinite scroll ─── */
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!sentinel.current) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !loadingMore && currentPage < totalPages) {
+          fetchPage(currentPage + 1);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    io.observe(sentinel.current);
+    return () => io.disconnect();
+  }, [loadingMore, currentPage, totalPages, fetchPage]);
+
+  /* ─── helpers ─── */
+  const onRefresh = () => {
+    setBooks([]);
+    setPage(1);
+    fetchPage(1, sortState);
+  };
+
+  /* ─── UI ─── */
   return (
     <div className={styles.container}>
       <div className={styles.mainContent}>
@@ -121,10 +154,12 @@ const SearchResultsFavorites: React.FC = () => {
                 ? "Save the works you like, and they will appear here"
                 : "Try changing the sort or filters")
             }
-            retry={error ? () => fetchData(currentPage, sortState) : undefined}
+            retry={error ? () => fetchPage(1, sortState) : undefined}
           />
         )}
-        {loading && <Loading />}
+
+        {loading && books.length === 0 && <Loading />}
+
         {!loading && books.length > 0 && (
           <>
             <div className={styles.booksGrid}>
@@ -137,22 +172,21 @@ const SearchResultsFavorites: React.FC = () => {
                 />
               ))}
             </div>
-            {totalPages > 1 && (
-              <div className={styles.paginationContainer}>
-                <Pagination
-                  totalPages={totalPages}
-                  onPageChange={onPageChange}
-                />
-              </div>
+
+            {loadingMore && (
+              <div className={styles.loadingMore}>Loading more…</div>
             )}
+
+            <div ref={sentinel} style={{ height: 1 }} />
           </>
         )}
       </div>
+
       <MinimalHeader
         sortOptions={SORT_OPTS}
         defaultSort="relevance"
         onSortChange={onSortChange}
-        onRefresh={() => fetchData(currentPage, sortState)}
+        onRefresh={onRefresh}
         loading={loading}
         disabled={favIds.length === 0}
       />

@@ -565,64 +565,69 @@ wss.on("connection", (ws) => {
             ids = [],
             sentIds = [],
             page = 0,
-            perPage = 1000000000000,
+            perPage = 10_000,
             filterTags = [],
           } = msg as {
             ids: number[];
             sentIds?: number[];
             page?: number;
             perPage?: number;
-            filterTags?: { id: number; type: string; name: string }[];
+            filterTags?: { id: number; type: Tag["type"]; name: string }[];
           };
           if (!ids.length) throw new Error("Ids array required");
 
-          const liked = await getFavorites(ids);
+          /* ——— типы и константы ——— */
+          type KnownBucket =
+            | "artist"
+            | "parody"
+            | "group"
+            | "category"
+            | "character";
+          type Bucket = KnownBucket | "tag";
+          type FrequencyMap = Record<string, number>;
 
-          /** частотная таблица */
-          const freq: Record<Bucket, Record<string, number>> = {
-            character: {},
-            artist: {},
-            parody: {},
-            group: {},
-            category: {},
-            tag: {},
-          };
-
-          /** известные «корзины», которые повышают вес */
-          const KNOWN_BUCKETS = [
+          const KNOWN_BUCKETS: readonly KnownBucket[] = [
             "artist",
             "parody",
             "group",
             "category",
             "character",
-          ] as const;
-          type KnownBucket = (typeof KNOWN_BUCKETS)[number];
+          ];
 
-          type Bucket = KnownBucket | "tag";
+          const blankFreq = (): FrequencyMap => Object.create(null);
+          const freq: Record<Bucket, FrequencyMap> = {
+            character: blankFreq(),
+            artist: blankFreq(),
+            parody: blankFreq(),
+            group: blankFreq(),
+            category: blankFreq(),
+            tag: blankFreq(),
+          };
 
-          /** type-guard для bucket-ов */
-          const isKnownBucket = (t: string): t is KnownBucket =>
-            (KNOWN_BUCKETS as readonly string[]).includes(t);
+          function bucketOf(t: Tag["type"]): Bucket {
+            return (KNOWN_BUCKETS as readonly string[]).includes(t as unknown as string)
+              ? (t as unknown as KnownBucket)
+              : "tag";
+          }
 
-          /** вернуть Bucket либо "tag" */
-          const bucketOf = (t: Tag["type"]): Bucket =>
-            isKnownBucket(t as any) ? (t as any) : "tag";
-
-          liked.forEach((b) =>
+          /* ——— строим частоты по избранному ——— */
+          const likedBooks = await getFavorites(ids);
+          likedBooks.forEach((b) =>
             b.tags.forEach((t) => {
               const bkt = bucketOf(t.type);
-              freq[bkt][t.name] = (freq[bkt][t.name] || 0) + 1;
+              freq[bkt][t.name] = (freq[bkt][t.name] ?? 0) + 1;
             })
           );
 
-          const filterPart =
-            Array.isArray(filterTags) && filterTags.length
-              ? filterTags
-                  .map((t) => `${t.type.replace(/s$/, "")}:"${t.name}"`)
-                  .join(" ")
-              : "";
+          /* ——— строка фильтра ——— */
+          const filterPart = filterTags.length
+            ? filterTags
+                .map((t) => `${String(t.type).replace(/s$/, "")}:"${t.name}"`)
+                .join(" ")
+            : "";
 
-          const topN = (m: Record<string, number>, n: number): string[] =>
+          /* ——— helpers ——— */
+          const topN = (m: FrequencyMap, n = 5): string[] =>
             Object.entries(m)
               .sort((a, b) => b[1] - a[1])
               .slice(0, n)
@@ -638,11 +643,12 @@ wss.on("connection", (ws) => {
               .then((r) => r.data.result as any[])
               .catch(() => <any[]>[]);
 
+          /* ——— ключевые запросы ——— */
           const topChars = topN(freq.character, 7);
           const topArts = topN(freq.artist, 5);
           const topTags = topN(freq.tag, 12);
 
-          const favQueries: string[] = [
+          const favQueries = [
             ...topChars.map((c) => `character:"${c}"`),
             ...topChars
               .slice(0, 3)
@@ -650,37 +656,34 @@ wss.on("connection", (ws) => {
                 topArts[i] ? [`character:"${c}" artist:"${topArts[i]}"`] : []
               ),
           ];
-
-          const tagQueries: string[] = [
+          const tagQueries = [
             topTags.join(" "),
             ...topTags.map((t) => `"${t}"`),
           ];
 
+          const addFilter = (arr: string[]) =>
+            filterPart ? arr.map((q) => `${filterPart} ${q}`) : arr;
+
+          /* ——— собираем кандидатов ——— */
           const exclude = new Set<number>(sentIds);
           const candidates = new Map<number, any>();
 
-          const grab = async (queries: string[]): Promise<void> => {
+          const grab = async (qs: string[]) => {
             await Promise.all(
-              [1, 2, 3].map((p) =>
-                Promise.all(queries.map((q) => fetchPage(q, p)))
-              )
-            ).then((arr) =>
-              arr.flat(2).forEach((item) => {
-                if (!exclude.has(item.id) && candidates.size < perPage * 10) {
-                  candidates.set(item.id, item);
+              [1, 2, 3].map((p) => Promise.all(qs.map((q) => fetchPage(q, p))))
+            ).then((pages) =>
+              pages.flat(2).forEach((it) => {
+                if (!exclude.has(it.id) && candidates.size < perPage * 10) {
+                  candidates.set(it.id, it);
                 }
               })
             );
           };
 
-          const prependFilter = (arr: string[]) =>
-            filterPart ? arr.map((q) => `${filterPart} ${q}`.trim()) : arr;
+          await grab(addFilter(favQueries));
+          await grab(addFilter(tagQueries));
 
-          await grab(prependFilter(favQueries));
-          await grab(prependFilter(tagQueries));
-
-          const rawCandidates = Array.from(candidates.values());
-
+          /* ——— скоринг + демотивация избранных ——— */
           const TAG_WEIGHTS: Record<Bucket, number> = {
             character: 4,
             artist: 3,
@@ -689,46 +692,72 @@ wss.on("connection", (ws) => {
             category: 1.5,
             tag: 1,
           };
-
           const required = new Set(
             filterTags.map((t) => `${t.type}:${t.name}`)
           );
+          const likedSet = new Set(ids);
 
-          const scored = rawCandidates.flatMap((raw) => {
-            const b = parseBookData(raw);
+          const scored = [...candidates.values()].flatMap((raw) => {
+            const book = parseBookData(raw);
+            const tagKeys = new Set(
+              book.tags.map((t) => `${t.type}:${t.name}`)
+            );
+            for (const r of required) if (!tagKeys.has(r)) return [];
 
-            const tagKeys = new Set(b.tags.map((t) => `${t.type}:${t.name}`));
-            for (const k of required) if (!tagKeys.has(k)) return [];
+            let score = book.favorites / 15_000;
+            const explain: string[] = [];
 
-            let sc = b.favorites / 15_000;
-            b.tags.forEach((t) => {
+            book.tags.forEach((t) => {
               const bkt = bucketOf(t.type);
-              const count = freq[bkt][t.name] || 0;
-              sc += TAG_WEIGHTS[bkt] * Math.pow(count, 1.3);
+              const cnt = freq[bkt][t.name] ?? 0;
+              if (!cnt) return;
+              const add = TAG_WEIGHTS[bkt] * Math.pow(cnt, 1.3);
+              score += add;
+              explain.push(
+                `${String(t.type).replace(/^\w/, (c) => c.toUpperCase())} <b>${
+                  t.name
+                }</b> встречался в ${cnt} избранных — +${add.toFixed(2)}`
+              );
             });
-            return [{ book: b, score: sc }];
+
+            // демотируем уже лайкнутые книги
+            if (likedSet.has(book.id)) {
+              score *= 0.5;
+              explain.push(`<i>демотирован лайком (×0.5)</i>`);
+            }
+
+            return [{ book, score, explain }];
           });
 
-          const ordered = scored
-            .sort((a, b) => b.score - a.score)
-            .map((o) => o.book);
+          /* ——— сортировка и лёгкий shuffle ——— */
+          scored.sort((a, b) => b.score - a.score);
+          for (let i = 0; i < Math.min(20, scored.length - 1); i++) {
+            const j =
+              i + Math.floor(Math.random() * (Math.min(20, scored.length) - i));
+            [scored[i], scored[j]] = [scored[j], scored[i]];
+          }
 
-          const mildShuffle = <T>(arr: T[], top = 20): void => {
-            for (let i = 0; i < Math.min(top, arr.length - 1); i++) {
-              const j =
-                i + Math.floor(Math.random() * (Math.min(top, arr.length) - i));
-              [arr[i], arr[j]] = [arr[j], arr[i]];
-            }
-          };
-          mildShuffle(ordered);
-
+          /* ——— ответ клиенту ——— */
           const start = (page - 1) * perPage;
           ws.send(
             JSON.stringify({
               type: "recommendations-reply",
-              books: ordered.slice(start, start + perPage),
-              totalPages: Math.max(1, Math.ceil(ordered.length / perPage)),
+              books: scored.slice(start, start + perPage).map((o) => ({
+                ...o.book,
+                explain: o.explain,
+                score: o.score,
+              })),
+              totalPages: Math.max(1, Math.ceil(scored.length / perPage)),
               currentPage: page,
+              debug: {
+                freq,
+                topChars,
+                topArts,
+                topTags,
+                favQueries,
+                tagQueries,
+                filterPart,
+              },
             })
           );
           break;

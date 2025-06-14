@@ -1,39 +1,32 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
-import { FiInfo } from "react-icons/fi";
 import * as styles from "./SearchResults.module.scss";
 import BookCard, { Book } from "../BookCard";
 import { wsClient } from "../../../wsClient";
-import Tooltip from "../ui/Tooltip";
 import { useTagFilter } from "../../../context/TagFilterContext";
 import MinimalHeader from "./MinimalHeader";
-import {
-  Loading,
-  NoFavorites,
-  NoRecommendations,
-  StateBlock,
-} from "./SearchResultStates";
+import { Loading, StateBlock } from "./SearchResultStates";
+import { FiAlertCircle, FiChevronDown, FiChevronUp } from "react-icons/fi";
 
-const LS_FAVORITES_KEY = "bookFavorites";
-const LS_PREFERENCES_KEY = "recommendationPreferences";
-const PER_PAGE = 100;
-const TODAY_ISO = new Date().toISOString().slice(0, 10);
-const isToday = (iso: string) => iso.startsWith(TODAY_ISO);
-
-interface RecStats {
-  weights: Record<string, number>;
-  topCharacters: TagStat[];
-  topArtists: TagStat[];
-  topTags: TagStat[];
-  extraCharacters: TagStat[];
-  extraArtists: TagStat[];
+interface RecommendationDebugData {
+  topChars: string[];
+  topArts: string[];
+  topTags: string[];
+  favQueries: string[];
+  tagQueries: string[];
+  filterPart?: string;
+  freq: Record<string, Record<string, number>>;
 }
 
-export { RecStats };
-
-type TagStat = { name: string; count: number };
 interface BookWithTags extends Book {
-  sharedTags?: string[];
+  explain?: string[];
+  score?: number;
 }
+
+interface RecommendationDebugProps {
+  debug: RecommendationDebugData | null;
+  books: BookWithTags[];
+}
+
 interface Preferences {
   prioritizeRecency: boolean;
   prioritizeArtists: boolean;
@@ -41,19 +34,102 @@ interface Preferences {
   diversityLevel: number;
 }
 
+/* ---------- debug-панель ---------- */
+const RecommendationDebug: React.FC<RecommendationDebugProps> = ({
+  debug,
+  books,
+}) => {
+  const [open, setOpen] = useState(false);
+  if (!debug) return null;
+  const renderPills = (arr: string[]) =>
+    arr.slice(0, 6).map((n, i) => (
+      <span key={i} className={styles.pill}>
+        {n}
+      </span>
+    ));
+
+  return (
+    <div className={styles.debugBox}>
+      <button className={styles.debugToggle} onClick={() => setOpen((o) => !o)}>
+        <FiAlertCircle size={18} />
+        <span>{open ? "Скрыть" : "Показать"} «Как это работает»</span>
+        {open ? <FiChevronUp /> : <FiChevronDown />}
+      </button>
+      <div className={styles.briefRow}>
+        {renderPills(debug.topChars)}
+        {renderPills(debug.topArts)}
+        {renderPills(debug.topTags)}
+      </div>
+      {open && (
+        <div className={styles.details}>
+          <h4>Алгоритм</h4>
+          <section>
+            <b>Топ-персонажи:</b> {renderPills(debug.topChars)}
+          </section>
+          <section>
+            <b>Топ-артисты:</b> {renderPills(debug.topArts)}
+          </section>
+          <section>
+            <b>Топ-теги:</b> {renderPills(debug.topTags)}
+          </section>
+          <details>
+            <summary>
+              Запросы к API ({debug.favQueries.length + debug.tagQueries.length}
+              )
+            </summary>
+            <ul className={styles.qList}>
+              {[...debug.favQueries, ...debug.tagQueries].map((q, i) => (
+                <li key={i}>{q}</li>
+              ))}
+            </ul>
+            {debug.filterPart && (
+              <code className={styles.filterLine}>{debug.filterPart}</code>
+            )}
+          </details>
+          <details>
+            <summary>Частоты тегов</summary>
+            <pre>{JSON.stringify(debug.freq, null, 2)}</pre>
+          </details>
+          <details>
+            <summary>Пояснение для книг</summary>
+            <ul className={styles.bookExplain}>
+              {books.map((b) => (
+                <li key={b.id}>
+                  <b>{b.title.pretty || b.title.english}</b>
+                  {b.explain?.slice(0, 3).map((e, i) => (
+                    <span key={i} dangerouslySetInnerHTML={{ __html: e }} />
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+    </div>
+  );
+};
+/* ---------- конец debug-панели ---------- */
+
+const LS_FAVORITES_KEY = "bookFavorites";
+const LS_PREFERENCES_KEY = "recommendationPreferences";
+const PER_PAGE = 100;
+const TODAY_ISO = new Date().toISOString().slice(0, 10);
+const isToday = (iso: string) => iso.startsWith(TODAY_ISO);
+
 const SearchResultsRecommendations: React.FC = () => {
   const { selectedTags } = useTagFilter();
+
   const [favIds, setFavIds] = useState<number[]>(() =>
     JSON.parse(localStorage.getItem(LS_FAVORITES_KEY) ?? "[]")
   );
   useEffect(() => {
-    const h = (e: StorageEvent) => {
+    const onStorage = (e: StorageEvent) => {
       if (e.key === LS_FAVORITES_KEY) {
         setFavIds(JSON.parse(e.newValue ?? "[]"));
       }
     };
-    window.addEventListener("storage", h);
-    return () => window.removeEventListener("storage", h);
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const toggleFavorite = (id: number, add: boolean) => {
@@ -64,7 +140,7 @@ const SearchResultsRecommendations: React.FC = () => {
     });
   };
 
-  const [preferences, setPreferences] = useState<Preferences>(() =>
+  const [preferences] = useState<Preferences>(() =>
     JSON.parse(
       localStorage.getItem(LS_PREFERENCES_KEY) ??
         JSON.stringify({
@@ -77,20 +153,37 @@ const SearchResultsRecommendations: React.FC = () => {
   );
 
   const [books, setBooks] = useState<BookWithTags[]>([]);
-  const [stats, setStats] = useState<RecStats | null>(null);
+  const [debug, setDebug] = useState<RecommendationDebugData | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotal] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{
     message: string;
     percent: number;
   } | null>(null);
 
+  const lastFetchRef = useRef<{ tagsKey: string; page: number } | null>(null);
+
   const fetchPage = useCallback(
     (p: number) => {
       if (!favIds.length) return;
-      setLoading(true);
+      const tagsKey = selectedTags.map((t) => t.id).join(",");
+      if (
+        lastFetchRef.current &&
+        lastFetchRef.current.tagsKey === tagsKey &&
+        lastFetchRef.current.page === p
+      ) {
+        return;
+      }
+      lastFetchRef.current = { tagsKey, page: p };
+
+      if (p === 1) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
       setError(null);
 
       const unsub = wsClient.subscribe((res) => {
@@ -104,13 +197,13 @@ const SearchResultsRecommendations: React.FC = () => {
         if (res.type === "error") {
           setError(res.message || "Failed to load recommendations");
           setLoading(false);
+          setLoadingMore(false);
           return unsub();
         }
         if (res.type === "recommendations-reply") {
-          setStats((res.stats as RecStats) || null);
+          setDebug(res.debug || null);
           setProgress(null);
-          setStats(res.stats || null);
-          setTotal(res.totalPages ?? 1);
+          setTotalPages(res.totalPages ?? 1);
           setCurrentPage(res.currentPage ?? p);
 
           const inc: BookWithTags[] = res.books || [];
@@ -118,18 +211,17 @@ const SearchResultsRecommendations: React.FC = () => {
           const rest = inc.filter((b) => !isToday(b.uploaded));
           const batch = [...today, ...rest];
 
-          setBooks((prev) => {
-            const seen = new Set(prev.map((b) => b.id));
-            return [...prev, ...batch.filter((b) => !seen.has(b.id))];
-          });
+          setBooks((prev) => (p === 1 ? batch : [...prev, ...batch]));
+
           setLoading(false);
+          setLoadingMore(false);
           unsub();
         }
       });
 
       wsClient.send({
         type: "get-recommendations",
-        sentIds: books.map((b) => b.id),
+        sentIds: [],
         ids: favIds,
         page: p,
         perPage: PER_PAGE,
@@ -137,122 +229,58 @@ const SearchResultsRecommendations: React.FC = () => {
         filterTags: selectedTags,
       });
     },
-    [favIds, books, preferences, selectedTags]
+    [favIds, preferences, selectedTags]
   );
 
+  // первая загрузка и при смене фильтра
   useEffect(() => {
-    setBooks([]);
-    setCurrentPage(1);
-    if (favIds.length) fetchPage(1);
-  }, [favIds, preferences, selectedTags]);
+    if (favIds.length) {
+      // всегда вручную сбрасываем на первую страницу при смене тэгов
+      lastFetchRef.current = null;
+      setBooks([]);
+      fetchPage(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTags]);
 
+  // infinite scroll
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!sentinel.current) return;
     const io = new IntersectionObserver(
       ([el]) => {
-        if (el.isIntersecting && !loading && currentPage < totalPages)
+        if (el.isIntersecting && !loadingMore && currentPage < totalPages) {
           fetchPage(currentPage + 1);
+        }
       },
       { rootMargin: "200px" }
     );
     io.observe(sentinel.current);
     return () => io.disconnect();
-  }, [loading, currentPage, totalPages, fetchPage]);
+  }, [loadingMore, currentPage, totalPages, fetchPage]);
 
-  const infoRef = useRef<HTMLDivElement>(null);
-  const [tipOpen, setTipOpen] = useState(false);
-
-  const TooltipBody = () =>
-    stats && (
-      <div
-        className={styles.tooltipInner}
-        onMouseEnter={() => setTipOpen(true)}
-        onMouseLeave={() => setTipOpen(false)}
-      >
-        <h4>Recommendation Algorithm</h4>
-        <b>Tag Weights</b>
-        <ul>
-          {Object.entries(stats.weights).map(([k, v]) => (
-            <li key={k}>
-              {k}: <em>{v}</em>
-            </li>
-          ))}
-        </ul>
-        <b>Top Characters</b>
-        <ul>
-          {stats.topCharacters.map((t) => (
-            <li key={t.name}>
-              {t.name} — <em>{t.count}</em>
-            </li>
-          ))}
-        </ul>
-        {!!stats.extraCharacters.length && (
-          <>
-            <b>More Characters</b>
-            <ul>
-              {stats.extraCharacters.map((t) => (
-                <li key={t.name}>
-                  {t.name} — <em>{t.count}</em>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        <b>Top Artists</b>
-        <ul>
-          {stats.topArtists.map((t) => (
-            <li key={t.name}>
-              {t.name} — <em>{t.count}</em>
-            </li>
-          ))}
-        </ul>
-        {!!stats.extraArtists.length && (
-          <>
-            <b>More Artists</b>
-            <ul>
-              {stats.extraArtists.map((t) => (
-                <li key={t.name}>
-                  {t.name} — <em>{t.count}</em>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        <b>Top Tags</b>
-        <ul>
-          {stats.topTags.map((t) => (
-            <li key={t.name}>
-              {t.name} — <em>{t.count}</em>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-
-  const onSortChange = () => {};
   const onRefresh = () => {
+    lastFetchRef.current = null;
     setBooks([]);
-    setCurrentPage(1);
-    if (favIds.length) fetchPage(1);
+    fetchPage(1);
   };
 
   return (
     <div className={styles.container}>
       <main className={styles.mainContent}>
+        <RecommendationDebug debug={debug} books={books} />
+
         {error && (
           <StateBlock
             icon="⚠️"
             title="Error"
             description={error}
-            retry={() => {
-              setBooks([]);
-              setCurrentPage(1);
-              if (favIds.length) fetchPage(1);
-            }}
+            retry={onRefresh}
           />
         )}
-        {loading && <Loading progress={progress} />}
+
+        {loading && books.length === 0 && <Loading progress={progress} />}
+
         {!loading && !error && (
           <>
             <div className={styles.booksGrid}>
@@ -266,6 +294,11 @@ const SearchResultsRecommendations: React.FC = () => {
                 />
               ))}
             </div>
+
+            {loadingMore && (
+              <div className={styles.loadingMore}>Загрузка ещё…</div>
+            )}
+
             {books.length === 0 && favIds.length > 0 && (
               <StateBlock icon="📚" description="No recommendations." />
             )}
@@ -276,14 +309,14 @@ const SearchResultsRecommendations: React.FC = () => {
           </>
         )}
       </main>
+
       <MinimalHeader
         sortOptions={[]}
         defaultSort=""
-        onSortChange={onSortChange}
+        onSortChange={() => {}}
         onRefresh={onRefresh}
         loading={loading}
         showInfo={true}
-        stats={stats}
         disabled={!favIds.length}
       />
     </div>

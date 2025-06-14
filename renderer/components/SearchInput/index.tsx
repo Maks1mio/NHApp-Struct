@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  ChangeEvent,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   FiSearch,
   FiClock,
@@ -37,10 +31,6 @@ type ContentType =
 interface SearchInputProps {
   onSearch: (query: string, type: ContentType) => void;
   className?: string;
-  currentPage?: number;
-  onPageChange?: (page: number) => void;
-  sort?: string;
-  onSortChange?: (value: string) => void;
 }
 
 interface Suggestion {
@@ -78,19 +68,19 @@ const SearchInput: React.FC<SearchInputProps> = ({
   onSearch,
   className = "",
 }) => {
-  /* ========== хелперы ========== */
   const isMobile = useIsMobile(900);
   const navigate = useNavigate();
   const location = useLocation();
   const qs = new URLSearchParams(location.search);
   const { selectedTags } = useTagFilter();
 
-  /* ========== состояние ========== */
   const [query, setQuery] = useState("");
   const [type, setType] = useState<ContentType>(
     (qs.get("type") as ContentType) || "search"
   );
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>(() =>
+    JSON.parse(localStorage.getItem("searchHistory") || "[]")
+  );
   const [results, setResults] = useState<Suggestion[]>([]);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [showTypes, setShowTypes] = useState(false);
@@ -100,20 +90,17 @@ const SearchInput: React.FC<SearchInputProps> = ({
   const formRef = useRef<HTMLFormElement>(null);
   const debRef = useRef<NodeJS.Timeout | null>(null);
 
-  /* ---------- импорт истории ---------- */
   useEffect(() => {
     const stored = localStorage.getItem("searchHistory");
     if (stored) setHistory(JSON.parse(stored));
   }, []);
 
-  /* ---------- поиск при смене тегов / типа ---------- */
   useEffect(() => {
     if (query.trim() || selectedTags.length > 0) {
       onSearch(query, type);
     }
   }, [selectedTags, type, query, onSearch]);
 
-  /* ---------- клик вне формы ---------- */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (!formRef.current?.contains(e.target as Node)) {
@@ -125,14 +112,12 @@ const SearchInput: React.FC<SearchInputProps> = ({
     return () => window.removeEventListener("mousedown", handler);
   }, []);
 
-  /* ---------- подсказки ---------- */
   const fetchSuggestions = useCallback(
     (q: string) => {
       if (!q.trim() && selectedTags.length === 0) {
         setResults([]);
         return;
       }
-
       const unsub = wsClient.subscribe((msg) => {
         if (msg.type === "search-results-reply") {
           const list = (msg.books || []).slice(0, 6).map((b: any) => ({
@@ -145,7 +130,6 @@ const SearchInput: React.FC<SearchInputProps> = ({
           unsub();
         }
       });
-
       wsClient.send({
         type: "search-books",
         query: q,
@@ -169,7 +153,6 @@ const SearchInput: React.FC<SearchInputProps> = ({
     return () => debRef.current && clearTimeout(debRef.current);
   }, [query, selectedTags, type, fetchSuggestions]);
 
-  /* ---------- утилиты ---------- */
   const addHistory = (q: string) => {
     const upd = [
       q,
@@ -195,24 +178,17 @@ const SearchInput: React.FC<SearchInputProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = query.trim();
-
-    if (trimmed === "") {
-      return;
-    }
-
+    if (trimmed === "") return;
     if (/^\d+$/.test(trimmed)) {
       clearDropdown();
       setFocused(false);
       navigate(`/book/${trimmed}`);
       return;
     }
-
     executeSearch(trimmed);
     setShowTypes(false);
     setFocused(false);
-    if (inputRef.current) {
-      inputRef.current.blur();
-    }
+    inputRef.current?.blur();
   };
 
   const openRandom = () => {
@@ -225,7 +201,6 @@ const SearchInput: React.FC<SearchInputProps> = ({
     wsClient.send({ type: "get-random-book" });
   };
 
-  /* ---------- вычисления ---------- */
   const qLower = query.trim().toLowerCase();
   const histList = qLower
     ? history.filter((h) => h.toLowerCase().includes(qLower))
@@ -237,23 +212,16 @@ const SearchInput: React.FC<SearchInputProps> = ({
   const hasQueryInUrl = !!qs.get("q");
   const showBackBtn = onBookPage || hasQueryInUrl;
 
-  // Function to navigate to the main search page based on current type
   const navigateToMainSearch = () => {
     const basePath = `/search?type=${type}`;
     const queryParam = hasQueryInUrl
       ? `&q=${encodeURIComponent(qs.get("q") || "")}`
       : "";
-    const pageParam = "&page=1";
-    navigate(`${basePath}${queryParam}${pageParam}`);
+    navigate(`${basePath}${queryParam}&page=1`);
   };
 
-  // Check if navigation history is empty or invalid
-  const canGoBack = () => {
-    const historyLength = window.history.length;
-    return historyLength > 1; // More than 1 entry means we can go back
-  };
+  const canGoBack = () => window.history.length > 1;
 
-  /* ========== JSX ========== */
   return (
     <form
       ref={formRef}
@@ -277,7 +245,6 @@ const SearchInput: React.FC<SearchInputProps> = ({
       )}
 
       <div className={styles.searchContainer}>
-        {/* ---------- input ---------- */}
         <div className={styles.inputWrapper}>
           <FiSearch className={styles.searchIcon} />
           <input
@@ -297,9 +264,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
           />
         </div>
 
-        {/* ---------- controls ---------- */}
         <div className={styles.controlsContainer}>
-          {/* тип контента */}
           <div
             className={styles.contentTypeSelect}
             onClick={() => setShowTypes(!showTypes)}
@@ -368,7 +333,6 @@ const SearchInput: React.FC<SearchInputProps> = ({
             </AnimatePresence>
           </div>
 
-          {/* теги */}
           <motion.button
             type="button"
             className={styles.tagsButton}
@@ -386,10 +350,13 @@ const SearchInput: React.FC<SearchInputProps> = ({
           </motion.button>
         </div>
 
-        {/* модалка тегов */}
-        <TagFilter isOpen={tagsOpen} onClose={() => setTagsOpen(false)} />
+        {/* принудительный remount TagFilter по ключу selectedTags */}
+        <TagFilter
+          key={selectedTags.map((t) => t.id).join(",")}
+          isOpen={tagsOpen}
+          onClose={() => setTagsOpen(false)}
+        />
 
-        {/* history + suggestions */}
         <AnimatePresence>
           {showDropdown && (
             <motion.div
@@ -399,9 +366,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.15 }}
             >
-              {/* history */}
               {histList.length > 0 && (
                 <>
+                  {/* History */}
                   <div className={styles.sectionHeaderRow}>
                     <span>History</span>
                     <button
@@ -444,10 +411,11 @@ const SearchInput: React.FC<SearchInputProps> = ({
                         className={styles.removeBtn}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setHistory((prev) => prev.filter((x) => x !== h));
+                          const upd = history.filter((x) => x !== h);
+                          setHistory(upd);
                           localStorage.setItem(
                             "searchHistory",
-                            JSON.stringify(histList.filter((x) => x !== h))
+                            JSON.stringify(upd)
                           );
                         }}
                       >
@@ -458,9 +426,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
                 </>
               )}
 
-              {/* results */}
               {results.length > 0 && (
                 <>
+                  {/* Suggestions */}
                   <div className={styles.sectionHeader}>Results</div>
                   {results.map((r) => (
                     <div
