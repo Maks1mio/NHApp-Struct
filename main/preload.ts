@@ -25,6 +25,16 @@ contextBridge.exposeInMainWorld("electron", {
     suggest: (query: string) => ipcRenderer.invoke("booru:suggest", query),
     proxy: (url: string) => ipcRenderer.invoke("booru:proxy", url),
   },
+  viewer: {
+    /**
+     * Открыть окно-просмотрщик страниц.
+     * @param bookId список url полных страниц
+     * @param index с какой страницы начать
+     * @param title (опц.) заголовок окна
+     */
+    open: (bookId: number, index: number, title?: string) =>
+      ipcRenderer.invoke("viewer:open", { bookId, index, title }),
+  },
 });
 
 export {};

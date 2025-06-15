@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  screen,
   protocol,
   ipcMain,
   session,
@@ -16,6 +17,7 @@ import * as path from "path";
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
 import { limitFetch, cachedGet } from "./utils/requestCache";
+import { IpcMainInvokeEvent } from "electron";
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
@@ -64,6 +66,9 @@ protocol.registerSchemesAsPrivileged([
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+declare const VIEWER_WEBPACK_ENTRY: string;
+declare const VIEWER_PRELOAD_WEBPACK_ENTRY: string;
 
 const baseAxiosCfg = {
   timeout: 10_000,
@@ -348,6 +353,22 @@ wss.on("connection", (ws) => {
           break;
         }
 
+        case "get-book-pages": {
+          const { id, startPage, endPage } = msg;
+          if (!id || !startPage || !endPage) throw new Error("Invalid parameters");
+          const { data } = await api.get(`/api/gallery/${id}`);
+          const book = parseBookData(data);
+          const pages = book.pages.slice(startPage - 1, endPage);
+          ws.send(
+            JSON.stringify({
+              type: "book-pages-reply",
+              pages,
+              totalPages: book.pagesCount,
+            })
+          );
+          break;
+        }
+
         case "get-tags":
           ws.send(
             JSON.stringify({
@@ -576,7 +597,6 @@ wss.on("connection", (ws) => {
           };
           if (!ids.length) throw new Error("Ids array required");
 
-          /* ——— типы и константы ——— */
           type KnownBucket =
             | "artist"
             | "parody"
@@ -605,12 +625,13 @@ wss.on("connection", (ws) => {
           };
 
           function bucketOf(t: Tag["type"]): Bucket {
-            return (KNOWN_BUCKETS as readonly string[]).includes(t as unknown as string)
+            return (KNOWN_BUCKETS as readonly string[]).includes(
+              t as unknown as string
+            )
               ? (t as unknown as KnownBucket)
               : "tag";
           }
 
-          /* ——— строим частоты по избранному ——— */
           const likedBooks = await getFavorites(ids);
           likedBooks.forEach((b) =>
             b.tags.forEach((t) => {
@@ -619,14 +640,12 @@ wss.on("connection", (ws) => {
             })
           );
 
-          /* ——— строка фильтра ——— */
           const filterPart = filterTags.length
             ? filterTags
                 .map((t) => `${String(t.type).replace(/s$/, "")}:"${t.name}"`)
                 .join(" ")
             : "";
 
-          /* ——— helpers ——— */
           const topN = (m: FrequencyMap, n = 5): string[] =>
             Object.entries(m)
               .sort((a, b) => b[1] - a[1])
@@ -643,7 +662,6 @@ wss.on("connection", (ws) => {
               .then((r) => r.data.result as any[])
               .catch(() => <any[]>[]);
 
-          /* ——— ключевые запросы ——— */
           const topChars = topN(freq.character, 7);
           const topArts = topN(freq.artist, 5);
           const topTags = topN(freq.tag, 12);
@@ -664,7 +682,6 @@ wss.on("connection", (ws) => {
           const addFilter = (arr: string[]) =>
             filterPart ? arr.map((q) => `${filterPart} ${q}`) : arr;
 
-          /* ——— собираем кандидатов ——— */
           const exclude = new Set<number>(sentIds);
           const candidates = new Map<number, any>();
 
@@ -683,7 +700,6 @@ wss.on("connection", (ws) => {
           await grab(addFilter(favQueries));
           await grab(addFilter(tagQueries));
 
-          /* ——— скоринг + демотивация избранных ——— */
           const TAG_WEIGHTS: Record<Bucket, number> = {
             character: 4,
             artist: 3,
@@ -720,7 +736,6 @@ wss.on("connection", (ws) => {
               );
             });
 
-            // демотируем уже лайкнутые книги
             if (likedSet.has(book.id)) {
               score *= 0.5;
               explain.push(`<i>демотирован лайком (×0.5)</i>`);
@@ -729,7 +744,6 @@ wss.on("connection", (ws) => {
             return [{ book, score, explain }];
           });
 
-          /* ——— сортировка и лёгкий shuffle ——— */
           scored.sort((a, b) => b.score - a.score);
           for (let i = 0; i < Math.min(20, scored.length - 1); i++) {
             const j =
@@ -737,7 +751,6 @@ wss.on("connection", (ws) => {
             [scored[i], scored[j]] = [scored[j], scored[i]];
           }
 
-          /* ——— ответ клиенту ——— */
           const start = (page - 1) * perPage;
           ws.send(
             JSON.stringify({
@@ -777,6 +790,46 @@ wss.on("connection", (ws) => {
     }
   });
 });
+
+function createViewerWindow(payload: {
+  bookId: number;
+  index: number;
+  title?: string;
+}) {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
+  const viewer = new BrowserWindow({
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    fullscreenable: true,
+    webPreferences: {
+      preload: VIEWER_PRELOAD_WEBPACK_ENTRY,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  viewer.once('ready-to-show', () => {
+    viewer.maximize();
+    viewer.show();
+  });
+
+  const params = new URLSearchParams({
+    bookId: String(payload.bookId),
+    index: String(payload.index),
+    title: payload.title ?? '',
+  });
+
+  viewer.loadURL(`${VIEWER_WEBPACK_ENTRY}?${params.toString()}`);
+}
+
+ipcMain.handle("viewer:open", (_e, args) => createViewerWindow(args));
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -868,11 +921,19 @@ app.whenReady().then(() => {
     log.error("Failed to load main window URL:", err);
   });
 
-  ipcMain.on("window:minimize", () => mainWindow?.minimize());
-  ipcMain.on("window:maximize", () =>
-    mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize()
-  );
-  ipcMain.on("window:close", () => mainWindow?.close());
+  ipcMain.on("window:minimize", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    win?.minimize();
+  });
+  ipcMain.on("window:maximize", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return;
+    win.isMaximized() ? win.unmaximize() : win.maximize();
+  });
+  ipcMain.on("window:close", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    win?.close();
+  });
 
   setupAutoUpdater(mainWindow);
 

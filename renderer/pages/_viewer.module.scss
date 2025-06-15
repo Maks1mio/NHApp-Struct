@@ -1,0 +1,246 @@
+/* базовые утилиты */
+.flex {
+  flex: 1 1 auto;
+}
+
+button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* оверлей */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--colour-overlay);
+  z-index: -2;
+}
+
+/* заголовок */
+.titleBar {
+  z-index: 322;
+  height: 32px;
+  padding: var(--spacing-sm);
+  color: var(--colour-l1);
+  font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+  user-select: none;
+  position: relative;
+  justify-content: flex-end;
+}
+
+/* навигационные кнопки */
+.nav {
+  position: fixed;
+  width: 155px;
+  height: -webkit-fill-available;
+  margin-top: -48px;
+  background: hsla(var(--base-hue), 20%, 50%, 0);
+  border: 0px solid;
+  box-shadow: var(--shadow-sm);
+  transition: var(--tr);
+  svg {
+    width: 18px;
+    height: 18px;
+    fill: var(--colour-l1);
+  }
+  &:hover {
+    background: var(--colour-b4);
+    box-shadow: var(--shadow-md);
+  }
+  &:focus {
+    outline: 2px solid hsla(var(--base-hue), 60%, 60%, 0.6);
+  }
+}
+
+.left {
+  left: 0px;
+}
+
+.right {
+  right: 0px;
+}
+
+/* информационная панель */
+.info {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  color: var(--colour-l1);
+  font-size: var(--font-size-md);
+  background: var(--colour-b2);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--border-radius-sm);
+  box-shadow: var(--shadow-sm);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+
+/* панель инструментов */
+.tools {
+  position: fixed;
+  z-index: 5;
+  right: 12px;
+  top: 55px;
+  display: flex;
+  flex-direction: row;
+  gap: var(--spacing-sm);
+  transform: translateY(-50%);
+  button {
+    width: 40px;
+    height: 40px;
+    background: var(--colour-b3);
+    border: 1px solid var(--colour-b4);
+    border-radius: var(--border-radius-md);
+    box-shadow: var(--shadow-sm);
+    transition: var(--tr);
+    svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--colour-l1);
+    }
+    &:hover {
+      background: var(--colour-b4);
+      box-shadow: var(--shadow-md);
+    }
+    &:focus {
+      outline: 2px solid hsla(var(--base-hue), 60%, 60%, 0.6);
+    }
+    &.active {
+      background: hsla(var(--base-hue), 60%, 60%, 0.6);
+      border-color: hsla(var(--base-hue), 60%, 60%, 0.6);
+      svg {
+        fill: var(--colour-c1);
+      }
+    }
+  }
+}
+
+/* основная сцена */
+.stage {
+  z-index: -1;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  user-select: none;
+  background: transparent;
+}
+
+.stage figure {
+  display: flex;
+  gap: var(--spacing-sm);
+  transition: transform 0.2s ease-out;
+}
+
+.stage img {
+  max-width: 100vw;
+  max-height: 100vh;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* заглушка */
+.stub {
+  @extend .stage;
+  color: var(--colour-l3);
+  font-size: var(--font-size-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* режим длинного списка */
+.longlist {
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.longlistContainer {
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stage.longlist img {
+  width: 50%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  margin-bottom: var(--spacing-md);
+}
+
+/* двойной режим */
+.stage figure.dual img {
+  max-width: 50vw;
+  max-height: 100vh;
+  object-fit: contain;
+}
+
+/* адаптивность */
+@media (max-width: 768px) {
+  .nav {
+    width: 48px;
+    height: 80px;
+    margin-top: -40px;
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .tools button {
+    width: 36px;
+    height: 36px;
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .info {
+    font-size: var(--font-size-sm);
+    padding: var(--spacing-xs);
+  }
+
+  .stage.longlist img {
+    width: 80%;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav {
+    width: 40px;
+    height: 64px;
+    margin-top: -32px;
+  }
+
+  .tools {
+    right: 8px;
+    gap: var(--spacing-xs);
+    button {
+      width: 32px;
+      height: 32px;
+      svg {
+        width: 14px;
+        height: 14px;
+      }
+    }
+  }
+
+  .info {
+    left: 8px;
+    bottom: 8px;
+  }
+}
